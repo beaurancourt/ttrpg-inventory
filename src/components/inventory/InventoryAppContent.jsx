@@ -14,6 +14,7 @@ import {
   orderBy,
   runTransaction,
   setDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { useParams, useNavigate } from "react-router-dom";
 import { AddContainerModal } from "./AddContainerModal";
@@ -26,6 +27,7 @@ import { ItemDetailsModal } from "./ItemDetailsModal";
 import { AuditLogModal } from "./AuditLogModal";
 import { TransferAllItemsModal } from "./TransferAllItemsModal";
 import { ImportItemsModal } from "./ImportItemsModal";
+import { ImportCharactersModal } from "./ImportCharactersModal";
 import { HelpModal } from "./HelpModal";
 import { PartyConfigModal } from "./PartyConfigModal";
 import { calculateContainerWeight, formatWeight, formatWeightValue } from "../../utils/utils";
@@ -124,6 +126,8 @@ export default function InventoryAppContent({ firebaseConfig, appId, db: dbProp,
   const [showImportItemsModal, setShowImportItemsModal] = useState(false);
   const [importTarget, setImportTarget] = useState(null); // { charId, containerId, containerName }
 
+  const [showImportCharactersModal, setShowImportCharactersModal] = useState(false);
+
   const [showHelpModal, setShowHelpModal] = useState(false);
 
   const [partyConfig, setPartyConfig] = useState(DEFAULT_PARTY_CONFIG);
@@ -148,7 +152,7 @@ export default function InventoryAppContent({ firebaseConfig, appId, db: dbProp,
           showDeleteCharacterConfirmModal || showAddContainerModal ||
           showItemDetailsModal || showContainerDetailsModal ||
           showCharacterDetailsModal || showAuditLogModal || showTransferAllModal ||
-          showImportItemsModal || showHelpModal || showPartyConfigModal) {
+          showImportItemsModal || showImportCharactersModal || showHelpModal || showPartyConfigModal) {
         return;
       }
 
@@ -202,7 +206,7 @@ export default function InventoryAppContent({ firebaseConfig, appId, db: dbProp,
       showGenericInputModal, showAddItemModal, showDeleteCharacterConfirmModal,
       showAddContainerModal, showItemDetailsModal, showContainerDetailsModal,
       showCharacterDetailsModal, showAuditLogModal, showTransferAllModal,
-      showImportItemsModal, showHelpModal, showPartyConfigModal]);
+      showImportItemsModal, showImportCharactersModal, showHelpModal, showPartyConfigModal]);
 
   useEffect(() => {
     // If db and auth are passed as props, use them directly
@@ -406,6 +410,75 @@ export default function InventoryAppContent({ firebaseConfig, appId, db: dbProp,
       setShowModal(true);
     }
   }, [db, appId, partyId, addAuditLogEntry]);
+
+  const handleExportCharacters = useCallback(() => {
+    const exportData = characters.map(({ id, ...rest }) => rest);
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `party-${partyId.slice(0, 8)}-characters.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [characters, partyId]);
+
+  const handleImportCharacters = useCallback(async (jsonText) => {
+    if (!db || !userId || !partyId) return;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+      if (!Array.isArray(parsed)) parsed = [parsed];
+    } catch {
+      setModalContent('Invalid JSON — please paste valid exported character data.');
+      setShowModal(true);
+      return;
+    }
+
+    for (const char of parsed) {
+      if (!char.name || typeof char.name !== 'string') {
+        setModalContent('Each character must have a "name" field.');
+        setShowModal(true);
+        return;
+      }
+    }
+
+    try {
+      const charactersRef = collection(
+        db,
+        `artifacts/${appId}/public/data/dnd_inventory/${partyId}/characters`,
+      );
+
+      const batch = writeBatch(db);
+      parsed.forEach((char, i) => {
+        const newRef = doc(charactersRef);
+        batch.set(newRef, {
+          name: char.name,
+          order: highestOrder + i + 1,
+          containers: Array.isArray(char.containers)
+            ? char.containers.map((c) => ({
+                ...c,
+                id: generateId(),
+                items: Array.isArray(c.items) ? c.items : [],
+              }))
+            : [],
+        });
+      });
+
+      await batch.commit();
+
+      await addAuditLogEntry(
+        'import',
+        `imported ${parsed.length} character(s): ${parsed.map((c) => c.name).join(', ')}`,
+      );
+
+      setShowImportCharactersModal(false);
+    } catch (error) {
+      console.error('Error importing characters:', error);
+      setModalContent(`Error importing characters: ${error.message}`);
+      setShowModal(true);
+    }
+  }, [db, userId, partyId, appId, highestOrder, addAuditLogEntry]);
 
   // Handler to transfer all items from one container to another
   const handleTransferAllItems = async (targetCharId, targetContainerId) => {
@@ -2273,6 +2346,11 @@ export default function InventoryAppContent({ firebaseConfig, appId, db: dbProp,
         }}
         onImport={handleImportItems}
       />
+      <ImportCharactersModal
+        show={showImportCharactersModal}
+        onClose={() => setShowImportCharactersModal(false)}
+        onImport={handleImportCharacters}
+      />
       <HelpModal
         show={showHelpModal}
         onClose={() => setShowHelpModal(false)}
@@ -2291,6 +2369,20 @@ export default function InventoryAppContent({ firebaseConfig, appId, db: dbProp,
             className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform transition duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-500 focus:ring-opacity-50"
           >
             + Add New Character
+          </button>
+          <button
+            onClick={handleExportCharacters}
+            className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform transition duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-teal-500 focus:ring-opacity-50"
+            title="Export all characters to JSON"
+          >
+            ↓ Export
+          </button>
+          <button
+            onClick={() => setShowImportCharactersModal(true)}
+            className="bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform transition duration-300 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-teal-500 focus:ring-opacity-50"
+            title="Import characters from JSON"
+          >
+            ↑ Import
           </button>
           <button
             onClick={() => setShowAuditLogModal(true)}
