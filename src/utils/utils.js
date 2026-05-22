@@ -28,7 +28,7 @@ export const formatWeight = (totalPounds, unit = DEFAULT_WEIGHT_UNIT) => {
  */
 export const calculateContainerWeight = (container) => {
   return (container?.items || []).reduce(
-    (total, item) => total + (item?.weight || 0) * (item?.quantity || 1),
+    (total, item) => total + (item?.weight || 0),
     0,
   );
 };
