@@ -13,12 +13,14 @@ export const ImportItemsModal = ({ show, onClose, onImport }) => {
   const [jsonText, setJsonText] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(null);
+  const [selected, setSelected] = useState([]);
 
   useEffect(() => {
     if (show) {
       setJsonText("");
       setError("");
       setPreview(null);
+      setSelected([]);
     }
   }, [show]);
 
@@ -127,10 +129,12 @@ export const ImportItemsModal = ({ show, onClose, onImport }) => {
 
       setError("");
       setPreview(validatedItems);
+      setSelected(validatedItems.map(() => true));
       return validatedItems;
     } catch (e) {
       setError(e.message);
       setPreview(null);
+      setSelected([]);
       return null;
     }
   };
@@ -140,9 +144,16 @@ export const ImportItemsModal = ({ show, onClose, onImport }) => {
     parseAndValidate(text);
   };
 
+  const toggleSelected = (index) => {
+    setSelected((prev) => prev.map((val, i) => (i === index ? !val : val)));
+  };
+
+  const selectedCount = selected.filter(Boolean).length;
+
   const handleImport = () => {
-    const items = parseAndValidate(jsonText);
-    if (items && items.length > 0) {
+    if (!preview || preview.length === 0) return;
+    const items = preview.filter((_, index) => selected[index]);
+    if (items.length > 0) {
       onImport(items);
       onClose();
     }
@@ -193,23 +204,30 @@ export const ImportItemsModal = ({ show, onClose, onImport }) => {
         {preview && preview.length > 0 && (
           <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-md">
             <p className="text-sm text-green-700 font-medium mb-2">
-              Preview ({preview.length} item{preview.length !== 1 ? 's' : ''})
+              Preview ({selectedCount} of {preview.length} item{preview.length !== 1 ? 's' : ''} selected)
             </p>
             <div className="max-h-40 overflow-y-auto space-y-1">
               {preview.map((item, index) => (
-                <div key={index} className="text-sm text-gray-700 flex justify-between bg-white px-2 py-1 rounded">
-                  <span className={
+                <label key={index} className="text-sm text-gray-700 flex items-center gap-2 bg-white px-2 py-1 rounded cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selected[index] ?? true}
+                    onChange={() => toggleSelected(index)}
+                    className="h-4 w-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                  />
+                  <span className={`flex-1 ${
+                    !selected[index] ? 'text-gray-400 line-through' :
                     item.itemType === 'coins' ? 'text-yellow-600' :
                     item.itemType === 'treasure' ? 'text-emerald-600' :
                     item.isUnidentified ? 'text-purple-600' : ''
-                  }>
+                  }`}>
                     {item.itemType === 'coins' && '$ '}
                     {item.itemType === 'treasure' && '* '}
                     {item.isUnidentified && '? '}
                     {item.name}
                   </span>
-                  <span className="text-yellow-700">{item.weight} lbs</span>
-                </div>
+                  <span className={selected[index] ? 'text-yellow-700' : 'text-gray-400'}>{item.weight} lbs</span>
+                </label>
               ))}
             </div>
           </div>
@@ -234,10 +252,10 @@ export const ImportItemsModal = ({ show, onClose, onImport }) => {
           </button>
           <button
             onClick={handleImport}
-            disabled={!preview || preview.length === 0}
+            disabled={!preview || selectedCount === 0}
             className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 transition duration-200"
           >
-            Import {preview ? `(${preview.length})` : ''}
+            Import {preview ? `(${selectedCount})` : ''}
           </button>
         </div>
       </div>
